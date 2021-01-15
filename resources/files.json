@@ -1,0 +1,99 @@
+{
+   "source_files":[
+      {
+         "source_name":"stock_movements",
+         "source_path":"/path/to/source/stock_movements.parquet",
+         "file_format":"parquet",
+         "header":true,
+         "inferSchema":true
+      },
+      {
+         "source_name":"sales",
+         "source_path":"/path/to/source/sales.parquet",
+         "file_format":"parquet",
+         "header":true,
+         "inferSchema":true
+      },
+      {
+         "source_name":"products",
+         "source_path":"/path/to/source/products.parquet",
+         "file_format":"parquet",
+         "header":true,
+         "inferSchema":true
+      }
+   ],
+   "actions": {
+      "rootCodeToStockMovements": {
+         "type": "join",
+         "left_df": "stock_movements",
+         "right_df": "products",
+         "condition": "ProductId",
+         "how": "inner",
+         "keep_nulls": false,
+         "selected_columns": "*"
+      },
+      "sumStockMovementsQuantity": {
+         "type": "aggregation",
+         "type_agg": "sum",
+         "df_to_aggregate": "rootCodeToStockMovements",
+         "groupBy_columns": "ProductRootCode,StoreId,Date",
+         "agg_columns": "Quantity"
+      },
+      "accumulateStock": {
+         "type": "window_df",
+         "type_agg": "sum",
+         "df_to_aggregate": "sumStockMovementsQuantity",
+         "partitionBy_columns": "ProductRootCode,StoreId,Date",
+         "orderBy_columns": "Date",
+         "result_colName": "Stock",
+         "agg_columns": "Quantity"
+      },
+      "filterDfByDate": {
+         "type": "filter_df",
+         "df_to_filter": "accumulateStock",
+         "condition": "Date < '2019-01-01'"
+      },
+      "getMaxDate": {
+         "type": "aggregation",
+         "type_agg": "max",
+         "df_to_aggregate": "filterDfByDate",
+         "groupBy_columns": "ProductRootCode,StoreId,Stock",
+         "agg_columns": "Date"
+      },
+      "addOrReplaceColumns": {
+         "type": "add_column",
+         "column_type": "date",
+         "df_to_update": "getMaxDate",
+         "col_name": "Date",
+         "value_column": "2019-01-01"
+      },
+      "filterDfByDate_2": {
+         "type": "filter_df",
+         "df_to_filter": "accumulateStock",
+         "condition": "Date > '2019-01-01'"
+      },
+      "union": {
+         "type": "union_df",
+         "df_top": "addOrReplaceColumns",
+         "df_bottom": "filterDfByDate_2",
+         "columns": "ProductRootCode,StoreId,Date,Stock"
+      },
+      "intervalStock": {
+         "type": "custom",
+         "function_name": "interval_stock",
+         "df": "union",
+         "params": {
+            "par_cols": "ProductRootCode,StoreId",
+            "order_cols": "Date",
+            "agg_cols": "*",
+            "filter_condition": "count_per_key > 1 AND Stock > 0"
+         }
+      },
+      "write_df": {
+         "type": "write_df",
+         "df_to_write": "intervalStock",
+         "output_path": "/path/to/destination/interval_stock",
+         "no_of_partitions": "50"
+      }
+   }
+}
